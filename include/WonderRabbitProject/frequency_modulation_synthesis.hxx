@@ -338,6 +338,7 @@ namespace WonderRabbitProject
           explicit
           white_t(const envelope_type& envelope_ = envelope_type(), float_type amplitude_ = 1, float_type frequency_ = constants::concert_pitch::standard)
             : base_type(envelope_, amplitude_, frequency_)
+            , distribution(-1, 1)
           {
           }
           
@@ -377,8 +378,9 @@ namespace WonderRabbitProject
           using this_type = pink_t<float_type, rng_type, distribution_type, envelope_type>;
           
           explicit
-          pink_t(const float_type pink_alpha_ = 1, const float_type pink_step_ = 3, const envelope_type& envelope_ = envelope_type(), float_type amplitude_ = 1, float_type frequency_ = constants::concert_pitch::standard)
+          pink_t(const float_type pink_alpha_ = 1, const float_type pink_step_ = 8, const envelope_type& envelope_ = envelope_type(), float_type amplitude_ = 1, float_type frequency_ = constants::concert_pitch::standard)
             : parent_type(envelope_, amplitude_, frequency_)
+            , distribution(-1, 1)
             , pink_alpha(pink_alpha_)
             , pink_step(pink_step_)
           {
@@ -390,10 +392,14 @@ namespace WonderRabbitProject
             constexpr auto pi = std::atan(float_type(-1));
             
             auto pink_value = distribution(rng);
+            auto a = 1;
             
-            for(uint n = 0; n < pink_step; ++n)
-              pink_value *= (float_type(n - 1) - pink_alpha * float_type(.5)) / n ;
-            
+            for(uint n = 1; n < pink_step; ++n)
+            {
+              a *= (float_type(n - 1) - pink_alpha * float_type(.5)) / n;
+              pink_value -= a * pink_value;
+            }
+            std::cout << pink_value << "\n";
             return base_type::envelope.calc_amplitude(time)
                 * base_type::amplitude
                 * pink_value
