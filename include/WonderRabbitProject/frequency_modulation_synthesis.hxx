@@ -221,8 +221,7 @@ namespace WonderRabbitProject
             
             return base_type::envelope.calc_amplitude(time)
                 * base_type::amplitude
-                //* ( std::sin(two_pi * base_type::frequency * time) >= 0 ? 1 : -1);
-                * (4.f * std::floor(time * base_type::frequency) - 2.f * std::floor(2.f * time * base_type::frequency) + 1.f)
+                * ( std::sin(two_pi * base_type::frequency * time) >= 0 ? 1 : -1);
                 ;
           }
         };
