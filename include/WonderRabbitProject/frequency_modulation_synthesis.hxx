@@ -215,16 +215,36 @@ namespace WonderRabbitProject
           explicit
           square_t(const envelope_type& envelope_ = envelope_type(), float_type amplitude_ = 1, float_type frequency_ = constants::concert_pitch::standard)
             : base_type(envelope_, amplitude_, frequency_)
+            , target_sampling_rate(default_target_sampling_rate)
           {
           }
           
           virtual const float_type operate(const float_type time) override
           {
+            float_type square_value = 0;
+            
+            for(uint n = 1, m = calc_fourier_step(); n < m; ++n)
+              square_value += std::sin( float_type(n * 2 - 1) * time * base_type::frequency * constants::two_pi) / float_type(2 * n - 1);
+            
+            square_value *= float_type(4) / constants::pi;
+            
             return base_type::envelope.calc_amplitude(time)
                 * base_type::amplitude
-                * ( std::sin(constants::two_pi * base_type::frequency * time) >= 0 ? 1 : -1);
+                * square_value
                 ;
           }
+          
+          this_type& set_target_sampling_rate(const uint32_t target_sampling_rate_)
+          { target_sampling_rate = target_sampling_rate_; return *this; }
+          
+          uint32_t get_target_sampling_rate() const
+          { return target_sampling_rate; }
+          
+        protected:
+          uint calc_fourier_step()
+          { return static_cast<uint>(std::ceil(std::log2(target_sampling_rate / 2 / base_type::frequency))); }
+          
+          uint32_t target_sampling_rate;
         };
         
         template<class T_float = default_float_type, class T_envelope = envelope_t<T_float>>
@@ -245,11 +265,9 @@ namespace WonderRabbitProject
           
           virtual const float_type operate(const float_type time) override
           {
-            constexpr auto pi = std::atan(float_type(-1));
-            
             return base_type::envelope.calc_amplitude(time)
                 * base_type::amplitude
-                * (float_type(2) / pi) * std::asin(std::sin(time * base_type::frequency * float_type(2) * pi))
+                * (float_type(2) / constants::pi) * std::asin(std::sin(time * base_type::frequency * constants::two_pi))
                 ;
           }
         };
@@ -273,8 +291,6 @@ namespace WonderRabbitProject
           
           virtual const float_type operate(const float_type time) override
           {
-            constexpr auto pi = std::atan(float_type(-1));
-            
             float_type sawtooth_value = 0;
             
             for(uint n = 1, m = calc_fourier_step(); n < m; ++n)
