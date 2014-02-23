@@ -336,11 +336,9 @@ namespace WonderRabbitProject
           
           virtual const float_type operate(const float_type time) override
           {
-            constexpr auto pi = std::atan(float_type(-1));
-            
             return base_type::envelope.calc_amplitude(time)
                 * base_type::amplitude
-                * std::max(float_type(-1), std::min(float_type(1), trapezoid_amplitude * (float_type(2) / pi) * std::asin(std::sin(time * base_type::frequency * float_type(2) * pi)) ))
+                * std::max(float_type(-1), std::min(float_type(1), trapezoid_amplitude * (float_type(2) / constants::pi) * std::asin(std::sin(time * base_type::frequency * constants::two_pi)) ))
                 ;
           }
           
