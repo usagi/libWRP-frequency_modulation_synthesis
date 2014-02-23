@@ -2,13 +2,18 @@
 #include <type_traits>
 #include <cmath>
 #include <random>
-#include <vector>
+#include <unordered_map>
+#include <list>
+#include <memory>
+#include <algorithm>
+#include <stdexcept>
 
 namespace WonderRabbitProject
 {
   namespace frequency_modulation_synthesis
   {
     using default_float_type = long double;
+    using default_random_engine = std::mt19937;
     
     namespace constants
     {
@@ -73,15 +78,19 @@ namespace WonderRabbitProject
           return time / attack;
         
         if(time < attack + decay)
-          return float_type(1) - (time - attack) * (sustain - float_type(1)) / decay;
+          return float_type(1) + (time - attack) * (sustain - float_type(1)) / decay;
         
-        return sustain - (time - attack) * ( -sustain ) / release;
+        if(time < attack + decay + release)
+          return sustain + (time - attack - decay) * ( -sustain ) / release;
+        
+        return 0;
       }
       
       const bool end_of_note(const float_type time) const
-      {
-        return time > attack + decay + release;
-      }
+      { return time > get_total_time(); }
+      
+      const float_type get_total_time() const
+      { return attack + decay + release; }
       
       const float_type get_attack() const { return attack; }
       const float_type get_decay() const { return decay; }
@@ -127,22 +136,37 @@ namespace WonderRabbitProject
         {
         }
         
-        virtual const float_type operate(const float_type time) const = 0;
+        virtual const float_type operate(const float_type time) = 0;
         
-        const envelope_type& get_envelope() const { return envelope; }
-        const float_type get_amplitude() const { return amplitude; }
-        const float_type get_frequency() const { return frequency; }
+        virtual const envelope_type& get_envelope() const { return envelope; }
+        virtual const typename envelope_type::float_type get_envelope_attack() const { return envelope.get_attack(); }
+        virtual const typename envelope_type::float_type get_envelope_decay() const { return envelope.get_decay(); }
+        virtual const typename envelope_type::float_type get_envelope_sustain() const { return envelope.get_sustain(); }
+        virtual const typename envelope_type::float_type get_envelope_release() const { return envelope.get_release(); }
+        virtual const float_type get_envelope_total_time() const { return envelope.get_total_time(); }
         
-        void set_envelope(const envelope_type& envelope_) { envelope = envelope_; }
-        void set_envelope(envelope_type&& envelope_) { envelope = std::move(envelope_); }
-        void set_amplitude(const float_type amplitude_) { amplitude = amplitude_; }
-        void set_frequency(const float_type frequency_) { frequency = frequency_; }
+        virtual const float_type get_amplitude() const { return amplitude; }
+        virtual const float_type get_frequency() const { return frequency; }
+        
+        virtual this_type& set_envelope(const envelope_type& envelope_) { envelope = envelope_; return *this; }
+        virtual this_type& set_envelope(envelope_type&& envelope_) { envelope = std::move(envelope_); return *this; }
+        virtual this_type& set_envelope_params
+        ( const typename envelope_type::float_type attack
+        , const typename envelope_type::float_type decay
+        , const typename envelope_type::float_type sustain
+        , const typename envelope_type::float_type release
+        ) { envelope.set_params(attack, decay, sustain, release); return *this; }
+        virtual this_type& set_envelope_attack(const typename envelope_type::float_type attack) { envelope.set_attack(attack); return *this; }
+        virtual this_type& set_envelope_decay(const typename envelope_type::float_type decay) { envelope.set_decay(decay); return *this; }
+        virtual this_type& set_envelope_sustain(const typename envelope_type::float_type sustain) { envelope.set_sustain(sustain); return *this; }
+        virtual this_type& set_envelope_release(const typename envelope_type::float_type release) { envelope.set_release(release); return *this; }
+        virtual this_type& set_amplitude(const float_type amplitude_) { amplitude = amplitude_; return *this; }
+        virtual this_type& set_frequency(const float_type frequency_) { frequency = frequency_; return *this; }
         
       protected:
         envelope_type envelope;
         float_type amplitude;
         float_type frequency;
-        
       };
         
       namespace wave
@@ -164,7 +188,7 @@ namespace WonderRabbitProject
           }
           
           // http://ja.wikipedia.org/wiki/FM%E9%9F%B3%E6%BA%90
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto two_pi = float_type(2) * std::atan(float_type(-1));
             
@@ -191,7 +215,7 @@ namespace WonderRabbitProject
           {
           }
           
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto two_pi = float_type(2) * std::atan(float_type(-1));
             
@@ -219,7 +243,7 @@ namespace WonderRabbitProject
           {
           }
           
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto pi = std::atan(float_type(-1));
             
@@ -246,7 +270,7 @@ namespace WonderRabbitProject
           {
           }
           
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto pi = std::atan(float_type(-1));
             
@@ -274,7 +298,7 @@ namespace WonderRabbitProject
           {
           }
           
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto pi = std::atan(float_type(-1));
             
@@ -284,8 +308,8 @@ namespace WonderRabbitProject
                 ;
           }
           
-          void set_trapezoid_amplitude(const float_type trapezoid_amplitude_)
-          { trapezoid_amplitude = trapezoid_amplitude_; }
+          this_type& set_trapezoid_amplitude(const float_type trapezoid_amplitude_)
+          { trapezoid_amplitude = trapezoid_amplitude_; return *this; }
           
           const float_type get_trapezoid_amplitude() const
           { return trapezoid_amplitude; }
@@ -298,7 +322,7 @@ namespace WonderRabbitProject
       
       namespace noise
       {
-        template<class T_float = default_float_type, class T_distribution = std::uniform_real_distribution<T_float>, class T_rng = std::default_random_engine, class T_envelope = envelope_t<T_float>>
+        template<class T_float = default_float_type, class T_distribution = std::uniform_real_distribution<T_float>, class T_rng = default_random_engine, class T_envelope = envelope_t<T_float>>
         class white_t: public operator_t<T_float, T_envelope>
         {
         public:
@@ -317,7 +341,7 @@ namespace WonderRabbitProject
           {
           }
           
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto pi = std::atan(float_type(-1));
             
@@ -330,15 +354,15 @@ namespace WonderRabbitProject
           typename distribution_type::param_type get_distribution_param() const
           { return distribution.param(); }
           
-          void set_distribution_param(const typename distribution_type::param_type& param)
-          { distribution.param(param); }
+          this_type& set_distribution_param(const typename distribution_type::param_type& param)
+          { distribution.param(param); return *this; }
           
         protected:
           distribution_type distribution;
           rng_type rng;
         };
         
-        template<class T_float = default_float_type, class T_distribution = std::uniform_real_distribution<T_float>, class T_rng = std::default_random_engine, class T_envelope = envelope_t<T_float>>
+        template<class T_float = default_float_type, class T_distribution = std::uniform_real_distribution<T_float>, class T_rng = default_random_engine, class T_envelope = envelope_t<T_float>>
         class pink_t: public white_t<T_float, T_distribution, T_rng, T_envelope>
         {
         public:
@@ -349,19 +373,19 @@ namespace WonderRabbitProject
           using distribution_type = T_distribution;
           
           using base_type = operator_t<float_type, envelope_type>;
-          using parent_type = white_t<float_type, rng_type, distribution_type, envelope_type>;
+          using parent_type = white_t<T_float, T_distribution, T_rng, T_envelope>;
           using this_type = pink_t<float_type, rng_type, distribution_type, envelope_type>;
           
           explicit
-          pink_t(const float_type pink_alpha_, const float_type pink_step_ , const envelope_type& envelope_ = envelope_type(), float_type amplitude_ = 1, float_type frequency_ = constants::concert_pitch::standard)
-            : base_type(envelope_, amplitude_, frequency_)
+          pink_t(const float_type pink_alpha_ = 1, const float_type pink_step_ = 3, const envelope_type& envelope_ = envelope_type(), float_type amplitude_ = 1, float_type frequency_ = constants::concert_pitch::standard)
+            : parent_type(envelope_, amplitude_, frequency_)
             , pink_alpha(pink_alpha_)
             , pink_step(pink_step_)
           {
           }
           
           // http://sampo.kapsi.fi/PinkNoise/
-          virtual const float_type operate(const float_type time) const override
+          virtual const float_type operate(const float_type time) override
           {
             constexpr auto pi = std::atan(float_type(-1));
             
@@ -379,8 +403,8 @@ namespace WonderRabbitProject
           typename distribution_type::param_type get_distribution_param() const
           { return distribution.param(); }
           
-          void set_distribution_param(const typename distribution_type::param_type& param)
-          { distribution.param(param); }
+          this_type& set_distribution_param(const typename distribution_type::param_type& param)
+          { distribution.param(param); return *this; }
           
         protected:
           distribution_type distribution;
@@ -392,15 +416,151 @@ namespace WonderRabbitProject
       }
     }
     
-    class algorithm
+    template<class T_base_operator = operators::operator_t<>>
+    class algorithm_t
     {
+    public:
+      using base_operator_type = T_base_operator;
+      using float_type = typename T_base_operator::float_type;
       
+      using operator_type = std::shared_ptr<base_operator_type>;
+      using operators_type = std::unordered_map<std::string, operator_type>;
+      
+      using path_type = std::list<operator_type>;
+      using paths_type = std::unordered_map<std::string, path_type>;
+      
+      using timers_type = std::list<float_type>;
+      
+      template<class T>
+      //std::shared_ptr<T> 
+      T&
+      emplace_operator(std::string&& name, T&& op)
+      {
+        const auto r = operators.emplace(std::move(name), std::make_shared<T>( std::move(op) ));
+        
+        if(!r.second)
+          throw std::runtime_error("operators.emplace to failed");
+        
+        //return *reinterpret_cast<std::shared_ptr<T>*>( & r.first->second );
+        return *static_cast<T*>( r.first->second.get() );
+      }
+      
+      template<class T = base_operator_type>
+      T&
+      get_operator(const std::string& operator_name)
+      {
+        const auto i = operators.find(operator_name);
+        if( i == std::end(operators) )
+          throw std::runtime_error("operator_name is not found in operators");
+        
+        return *static_cast<T*>( i->second.get() );
+      }
+      
+      void remove_operator(const std::string& operator_name)
+      {
+        const auto i = operators.find(operator_name);
+        if( i == std::end(operators) )
+          throw std::runtime_error("operator_name is not found in operators");
+        
+        // remove path included the operator
+        {
+          const auto& op = i->second;
+          std::vector<std::string> remove_path_names;
+          
+          //for(const auto& path : paths)
+          for(auto i = paths.cbegin(); i < paths.cend(); ++i)
+            for(const auto& path_op : i->second)
+              if(path_op == op)
+              {
+                remove_path_names.emplace_back(i->first);
+                break;
+              }
+        }
+        
+        // remove operator
+        operators.erase(operator_name);
+      }
+      
+      void add_path(const std::string& path_name, const std::string& operator_name)
+      {
+        if( operators.find(operator_name) == std::end(operators) )
+          throw std::runtime_error("operator_name not found in operators");
+        
+        if( paths.find(path_name) == std::end(paths) )
+          paths.emplace(path_name, path_type() );
+        
+        paths[path_name].emplace_back( operators[operator_name] );
+      }
+      
+      const std::vector<std::string> get_path_operator_names(const std::string path_name) const
+      {
+        std::vector<std::string> r;
+        
+        if( paths.find(path_name) == std::end(paths) )
+          throw std::runtime_error("path_name not found in paths");
+        
+        for(const auto& op : paths.at(path_name))
+          for(const auto& i : operators)
+            if(i.second == op)
+              r.emplace_back(i.first);
+        
+        return r;
+      }
+      
+      void remove_path(const std::string& path_name)
+      { paths.erase(path_name); }
+      
+      const float_type synthesize(const float_type time) const
+      {
+        float_type r;
+        
+        for(auto path : paths)
+        {
+          if(path.second.empty())
+            continue;
+          
+          auto i = path.second.cbegin();
+          auto r_path = (*i)->operate(time);
+          
+          while(++i != path.second.cend())
+            r_path = (*i)->operate(r_path);
+          
+          r += r_path;
+        }
+        
+        return r;
+      }
+      
+      void add_note()
+      {
+        timers.emplace_back(0);
+      }
+      
+      const float_type play_note() const
+      {
+        float_type r;
+        
+        for(const auto timer : timers)
+          r += synthesize(timer);
+        
+        return r;
+      }
+      
+      void update_note(const float_type delta_time)
+      {
+        for(auto i = timers.begin(); i != timers.end(); ++i)
+        {
+          *i += delta_time;
+          if(std::all_of(paths.cbegin(), paths.cend(), [&i](const base_operator_type& op){ return op.end_of_note(*i); }))
+            i = timers.erase(i) - 1;
+        }
+      }
+      
+    protected:
+      operators_type operators;
+      paths_type paths;
+      timers_type timers;
     };
-    
-    namespace programs
-    {
-      
-    }
     
   }
 }
